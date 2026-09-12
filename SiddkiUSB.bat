@@ -1,33 +1,28 @@
 @echo off
 REM ============================================================================
 REM  SiddkiUSB - Hands-Free USB Auto-Copy System for Windows 10/11
-REM  ULTIMATE VERSION - Auto-Detection, Auto-Fix, Built-in Diagnostics
-REM ============================================================================
-REM  IMPORTANT: Run as Administrator for full functionality
-REM  Right-click CMD → Run as Administrator
+REM  ULTIMATE VERSION v3.0 - Auto-Detection, Auto-Fix, Built-in Diagnostics
+REM  DEBUG MODE - Shows all errors and diagnostics
 REM ============================================================================
 
 setlocal enabledelayedexpansion
 
+cls
+echo.
+echo ============================================================================
+echo  SiddkiUSB - Debug Mode - Initializing...
+echo ============================================================================
+echo.
+
 REM Check if running as Administrator
 net session >nul 2>&1
 if %errorlevel% neq 0 (
-    echo.
-    echo ============================================================================
     echo [WARNING] NOT RUNNING AS ADMINISTRATOR
-    echo ============================================================================
-    echo This script needs Administrator privileges to:
-    echo - Access all files on USB drives
-    echo - Create necessary system configurations
-    echo - Properly detect connected USB devices
+    echo Please run this script as Administrator for full functionality
     echo.
-    echo RIGHT-CLICK THIS FILE AND SELECT "Run as administrator"
-    echo OR
-    echo Open Command Prompt as Administrator and run this script
+    echo Right-click this file and select "Run as administrator"
     echo.
-    echo Press any key to continue anyway (limited functionality)...
-    pause
-    echo.
+    timeout /t 5 /nobreak
 )
 
 REM ============================================================================
@@ -35,265 +30,235 @@ REM CONFIGURATION
 REM ============================================================================
 set "DEST_BASE=%USERPROFILE%\Documents\Siddki USB"
 set "MONITOR_INTERVAL=2"
-set "REMOVAL_CHECK_INTERVAL=1"
 set "LOG_FILE=%TEMP%\SiddkiUSB_log.txt"
 set "USB_DB=%TEMP%\SiddkiUSB_devices.txt"
-set "DIAG_FILE=%TEMP%\SiddkiUSB_diagnostics.txt"
 set "LAST_USB_LETTER="
 set "COPY_IN_PROGRESS=0"
 set "DETECTION_METHOD=UNKNOWN"
+
+echo [1/5] Configuration loaded
+echo [DEST] %DEST_BASE%
+echo.
 
 REM ============================================================================
 REM PRE-FLIGHT CHECKS
 REM ============================================================================
 
-echo.
-echo ============================================================================
-echo  SiddkiUSB - Pre-Flight System Check
-echo ============================================================================
+echo [2/5] Checking system requirements...
 echo.
 
 REM Check if robocopy exists
-where robocopy >nul 2>&1
+echo Checking for robocopy.exe...
+robocopy /? >nul 2>&1
 if %errorlevel% neq 0 (
-    echo [ERROR] Robocopy not found. Installing...
-    call :install_robocopy
-    if %errorlevel% neq 0 (
-        echo [ERROR] Failed to install robocopy. Robocopy is required.
-        pause
-        exit /b 1
-    )
+    echo [ERROR] Robocopy not found!
+    echo Robocopy is required but not available on this system.
+    echo.
+    echo Please ensure Windows is fully updated:
+    echo 1. Go to Settings ^> System ^> About
+    echo 2. Click "Check for updates"
+    echo 3. Install all available updates
+    echo 4. Restart your computer
+    echo 5. Run this script again
+    echo.
+    pause
+    exit /b 1
 )
 echo [OK] Robocopy found
+echo.
 
-REM Check USB detection capability
-call :detect_usb_method
-if "!DETECTION_METHOD!"=="UNKNOWN" (
-    echo [WARNING] No USB detection method available
-    echo Attempting to enable WMIC or use alternative method...
-    call :enable_wmic_or_fallback
+REM ============================================================================
+REM TEST USB DETECTION METHODS
+REM ============================================================================
+
+echo [3/5] Testing USB detection methods...
+echo.
+
+REM Method 1: WMIC
+echo Testing WMIC method...
+wmic logicaldisk where drivetype=2 get deviceid >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] WMIC available - will use this method
+    set "DETECTION_METHOD=WMIC"
+    goto detection_ok
 )
+echo [X] WMIC not available
+echo.
 
-REM Create destination folder
+REM Method 2: PowerShell
+echo Testing PowerShell method...
+powershell -Command "Get-Volume -ErrorAction Stop" >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] PowerShell available - will use this method
+    set "DETECTION_METHOD=POWERSHELL"
+    goto detection_ok
+)
+echo [X] PowerShell not available
+echo.
+
+REM Method 3: diskpart
+echo Testing diskpart method...
+echo list disk | diskpart >nul 2>&1
+if %errorlevel% equ 0 (
+    echo [OK] Diskpart available - will use this method
+    set "DETECTION_METHOD=DISKPART"
+    goto detection_ok
+)
+echo [X] Diskpart not available
+echo.
+
+REM Method 4: Manual detection
+echo Using manual drive letter detection
+set "DETECTION_METHOD=MANUAL"
+
+:detection_ok
+echo [OK] Detection method selected: !DETECTION_METHOD!
+echo.
+
+REM ============================================================================
+REM CREATE DESTINATION FOLDER
+REM ============================================================================
+
+echo [4/5] Preparing destination folder...
+echo.
+
 if not exist "!DEST_BASE!" (
+    echo Creating: !DEST_BASE!
     mkdir "!DEST_BASE!"
     if errorlevel 1 (
-        echo [ERROR] Failed to create destination folder: !DEST_BASE!
-        echo Please check permissions or run as Administrator.
+        echo [ERROR] Failed to create destination folder
+        echo Possible causes:
+        echo - Permission denied (not running as Administrator)
+        echo - Invalid path
+        echo - Disk full
+        echo.
         pause
         exit /b 1
     )
 )
-echo [OK] Destination folder ready: !DEST_BASE!
+echo [OK] Destination ready: !DEST_BASE!
+echo.
 
-REM Initialize USB database
+REM Initialize databases
 if not exist "!USB_DB!" (
     type nul > "!USB_DB!"
 )
 
+type nul > "!LOG_FILE!"
+echo [STARTUP] SiddkiUSB initialized at %date% %time% >> "!LOG_FILE!"
+echo [INFO] Detection Method: !DETECTION_METHOD! >> "!LOG_FILE!"
+
 REM ============================================================================
-REM MAIN BANNER
+REM DISPLAY READY STATUS
 REM ============================================================================
 
+echo [5/5] System ready!
 echo.
 echo ============================================================================
-echo  SiddkiUSB - Hands-Free USB Auto-Copy System
+echo  SiddkiUSB - Ready to Monitor for USB Drives
 echo ============================================================================
 echo.
-echo Destination: !DEST_BASE!
-echo Detection Method: !DETECTION_METHOD!
-echo Log File: !LOG_FILE!
+echo Configuration:
+echo - Destination: !DEST_BASE!
+echo - Detection: !DETECTION_METHOD!
+echo - Log: !LOG_FILE!
 echo.
 echo Status: Waiting for USB insertion...
-echo Press Ctrl+C to exit.
+echo.
+echo Instructions:
+echo 1. Insert a USB drive now
+echo 2. Files will be copied automatically to the destination folder
+echo 3. Remove USB anytime - copy will stop safely
+echo 4. Reinsert USB to resume copying
+echo 5. Press Ctrl+C to stop monitoring
 echo.
 echo ============================================================================
 echo.
-
-REM Clear log
-type nul > "!LOG_FILE!"
-echo [START] SiddkiUSB initialized at %date% %time% >> "!LOG_FILE!"
-echo [INFO] Detection Method: !DETECTION_METHOD! >> "!LOG_FILE!"
-echo. >> "!LOG_FILE!"
 
 REM ============================================================================
 REM MAIN MONITORING LOOP
 REM ============================================================================
 
+set "LAST_USB_DETECTED="
+set "LOOP_COUNT=0"
+
 :monitor_loop
-timeout /t !MONITOR_INTERVAL! /nobreak >nul
 
-REM Get current connected USB drives
+set /a LOOP_COUNT+=1
+
+REM Get current USB drives based on detection method
 setlocal enabledelayedexpansion
-call :get_connected_usb_drives
-setlocal enabledelayedexpansion
-
-REM Check for new USB drives
-for /f "tokens=*" %%A in ('type "!USB_DB!" 2^>nul') do (
-    set "OLD_USB=%%A"
-)
-
-if not "!DETECTED_USB!"=="" (
-    if "!DETECTED_USB!" neq "!OLD_USB!" (
-        echo [NEW USB] Detected: !DETECTED_USB! at %time%
-        echo [NEW USB] Detected: !DETECTED_USB! at %time% >> "!LOG_FILE!"
-        
-        REM Store in database
-        echo !DETECTED_USB! > "!USB_DB!"
-        
-        REM Start copy process
-        call :copy_from_usb "!DETECTED_USB!"
-        
-        REM After copy, monitor for removal
-        call :monitor_usb_removal "!DETECTED_USB!"
-        
-        REM Clear database
-        type nul > "!USB_DB!"
-    )
-)
-
-goto monitor_loop
-
-REM ============================================================================
-REM FUNCTION: Detect USB Detection Method
-REM ============================================================================
-:detect_usb_method
-
-echo [DIAG] Detecting USB detection method...
-
-REM Method 1: Try WMIC (Windows 10 standard)
-wmic logicaldisk where drivetype=2 get deviceid >nul 2>&1
-if !errorlevel! equ 0 (
-    set "DETECTION_METHOD=WMIC"
-    echo [DIAG] ✓ WMIC available
-    exit /b 0
-)
-
-REM Method 2: Try PowerShell Get-Volume (Windows 10+)
-powershell -Command "Get-Volume -ErrorAction Stop" >nul 2>&1
-if !errorlevel! equ 0 (
-    set "DETECTION_METHOD=POWERSHELL"
-    echo [DIAG] ✓ PowerShell Get-Volume available
-    exit /b 0
-)
-
-REM Method 3: Try diskpart
-echo list disk | diskpart >nul 2>&1
-if !errorlevel! equ 0 (
-    set "DETECTION_METHOD=DISKPART"
-    echo [DIAG] ✓ Diskpart available
-    exit /b 0
-)
-
-REM Method 4: Manual drive detection (Z-A)
-set "DETECTION_METHOD=MANUAL"
-echo [DIAG] ✓ Using manual drive letter detection
-exit /b 0
-
-:enable_wmic_or_fallback
-
-echo [FIX] Attempting to re-enable WMI service...
-net start WinMgmt >nul 2>&1
-
-REM Re-test WMIC
-wmic os get caption >nul 2>&1
-if !errorlevel! equ 0 (
-    set "DETECTION_METHOD=WMIC"
-    echo [OK] WMIC re-enabled successfully
-    exit /b 0
-)
-
-echo [INFO] Using fallback detection method
-exit /b 0
-
-REM ============================================================================
-REM FUNCTION: Get Connected USB Drives
-REM ============================================================================
-:get_connected_usb_drives
-
-set "DETECTED_USB="
 
 if "!DETECTION_METHOD!"=="WMIC" (
-    call :usb_method_wmic
+    for /f "tokens=1" %%A in ('wmic logicaldisk where drivetype=2 get deviceid 2^>nul ^| findstr ":"') do (
+        set "CURRENT_USB=%%A"
+        goto usb_found_wmic
+    )
+    set "CURRENT_USB="
+    :usb_found_wmic
 ) else if "!DETECTION_METHOD!"=="POWERSHELL" (
-    call :usb_method_powershell
+    for /f "tokens=1" %%A in ('powershell -Command "Get-Volume -ErrorAction SilentlyContinue | Where-Object {$_.DriveType -eq 'Removable'} | Select-Object -ExpandProperty DriveLetter" 2^>nul') do (
+        set "CURRENT_USB=%%A:"
+        goto usb_found_ps
+    )
+    set "CURRENT_USB="
+    :usb_found_ps
 ) else if "!DETECTION_METHOD!"=="DISKPART" (
-    call :usb_method_diskpart
+    REM Diskpart detection - check for removable media
+    echo list disk | diskpart 2>nul | findstr "Removable" >nul 2>&1
+    if !errorlevel! equ 0 (
+        set "CURRENT_USB=FOUND_VIA_DISKPART"
+    ) else (
+        set "CURRENT_USB="
+    )
 ) else (
-    call :usb_method_manual
-)
-
-exit /b 0
-
-REM ============================================================================
-REM USB Detection Method: WMIC
-REM ============================================================================
-:usb_method_wmic
-
-for /f "tokens=1" %%A in ('wmic logicaldisk where drivetype=2 get deviceid 2^>nul ^| findstr ":"') do (
-    if not "!DETECTED_USB!"=="" (
-        set "DETECTED_USB=!DETECTED_USB! %%A"
-    ) else (
-        set "DETECTED_USB=%%A"
-    )
-)
-
-exit /b 0
-
-REM ============================================================================
-REM USB Detection Method: PowerShell
-REM ============================================================================
-:usb_method_powershell
-
-for /f "tokens=1" %%A in ('powershell -Command "Get-Volume | Where-Object {$_.DriveType -eq 'Removable'} | Select-Object -ExpandProperty DriveLetter" 2^>nul') do (
-    if not "!DETECTED_USB!"=="" (
-        set "DETECTED_USB=!DETECTED_USB! %%A:"
-    ) else (
-        set "DETECTED_USB=%%A:"
-    )
-)
-
-exit /b 0
-
-REM ============================================================================
-REM USB Detection Method: Diskpart
-REM ============================================================================
-:usb_method_diskpart
-
-REM Create diskpart script
-echo list disk > %TEMP%\diskpart_script.txt
-
-for /f "tokens=2" %%A in ('diskpart /s %TEMP%\diskpart_script.txt 2^>nul ^| findstr "Disk"') do (
-    REM Check if it's a removable disk (heuristic)
-    set "DETECTED_USB=%%A"
-)
-
-del %TEMP%\diskpart_script.txt >nul 2>&1
-
-exit /b 0
-
-REM ============================================================================
-REM USB Detection Method: Manual Drive Letter Scan
-REM ============================================================================
-:usb_method_manual
-
-REM Scan drives Z to D (excluding C which is usually system drive)
-for %%D in (Z Y X W V U T S R Q P O N M L K J I H G F E D) do (
-    if exist %%D:\ (
-        REM Check if it's not a network drive or system drive
-        if not "%%D"=="C" (
-            REM Simple heuristic: if drive is present and accessible
-            dir %%D:\ >nul 2>&1
-            if !errorlevel! equ 0 (
-                set "DETECTED_USB=%%D:"
-                goto :end_manual_scan
+    REM Manual detection - scan all drive letters
+    set "CURRENT_USB="
+    for %%D in (Z Y X W V U T S R Q P O N M L K J I H G F E D) do (
+        if exist %%D:\ (
+            if not "%%D"=="C" (
+                dir %%D:\ >nul 2>&1
+                if !errorlevel! equ 0 (
+                    REM Check if it's likely a removable drive (not too large)
+                    for /f %%Z in ('dir %%D:\ ^| find "bytes"') do (
+                        set "CURRENT_USB=%%D:"
+                        goto usb_found_manual
+                    )
+                )
             )
         )
     )
+    :usb_found_manual
 )
 
-:end_manual_scan
-exit /b 0
+endlocal & set "CURRENT_USB=!CURRENT_USB!"
+
+REM Check if USB state changed
+if not "!CURRENT_USB!"=="!LAST_USB_DETECTED!" (
+    if not "!CURRENT_USB!"=="" (
+        echo.
+        echo ============================================================================
+        echo [USB DETECTED] %date% %time%
+        echo ============================================================================
+        echo Drive: !CURRENT_USB!
+        echo.
+        
+        call :copy_from_usb "!CURRENT_USB!"
+        
+        echo [INFO] Copy complete. Waiting for next USB...
+        echo.
+    ) else (
+        if not "!LAST_USB_DETECTED!"=="" (
+            echo [USB REMOVED] %date% %time% - !LAST_USB_DETECTED! ejected
+            echo.
+        )
+    )
+    set "LAST_USB_DETECTED=!CURRENT_USB!"
+)
+
+timeout /t !MONITOR_INTERVAL! /nobreak >nul
+
+goto monitor_loop
 
 REM ============================================================================
 REM FUNCTION: Copy from USB
@@ -302,135 +267,48 @@ REM ============================================================================
 
 setlocal enabledelayedexpansion
 set "USB_DRIVE=%~1"
-set "USB_LETTER=%USB_DRIVE:~0,1%"
-set "COPY_DEST=!DEST_BASE!\!USB_LETTER!_Drive_%date:~-4,4%-%date:~-10,2%-%date:~-7,2%_%time:~0,2%-%time:~3,2%-%time:~6,2%"
 
-echo.
-echo ============================================================================
-echo [COPY] Starting USB copy process
-echo ============================================================================
-echo USB Drive: !USB_DRIVE!
-echo Destination: !COPY_DEST!
-echo Time: %date% %time%
+echo Starting copy from !USB_DRIVE!
+echo Source: !USB_DRIVE!\
+echo Destination: !DEST_BASE!
 echo.
 
-echo [COPY] Starting USB copy process >> "!LOG_FILE!"
-echo USB Drive: !USB_DRIVE! >> "!LOG_FILE!"
-echo Destination: !COPY_DEST! >> "!LOG_FILE!"
-echo.
-
-REM Create destination directory
-mkdir "!COPY_DEST!" 2>nul
-if errorlevel 1 (
-    echo [ERROR] Failed to create destination directory
-    echo [ERROR] Failed to create destination directory >> "!LOG_FILE!"
+REM Verify USB still exists
+if not exist "!USB_DRIVE!\" (
+    echo [ERROR] USB drive !USB_DRIVE! is not accessible!
+    endlocal
     exit /b 1
 )
 
-REM Perform copy using robocopy
-set "COPY_IN_PROGRESS=1"
+echo [INFO] Copying files... This may take a while
+echo.
 
-echo [INFO] Copying files... This may take a while depending on file size.
-echo [INFO] Copying files... >> "!LOG_FILE!"
+REM Run robocopy
+robocopy "!USB_DRIVE!\" "!DEST_BASE!" /E /R:3 /W:1 /MT:8 /DCOPY:DAT /COPY:DAT /NP /NFL /NDL 2>&1
 
-REM Robocopy command with retry and multi-threading
-robocopy "!USB_DRIVE!\" "!COPY_DEST!" /E /R:3 /W:1 /MT:16 /DCOPY:DAT /COPY:DAT /LOG:"!COPY_DEST!\copy_log.txt" /LOG+:"!LOG_FILE!"
+set "ROBOCOPY_EXIT=!ERRORLEVEL!"
 
-if !errorlevel! leq 7 (
-    echo.
-    echo [SUCCESS] Files copied successfully!
-    echo [SUCCESS] Files copied successfully! >> "!LOG_FILE!"
-    echo.
-    timeout /t 3 /nobreak
+echo.
+echo ============================================================================
+echo [ROBOCOPY EXIT CODE] !ROBOCOPY_EXIT!
+echo ============================================================================
+echo.
+
+if !ROBOCOPY_EXIT! equ 0 (
+    echo [OK] No files to copy (destination already complete or empty source)
+) else if !ROBOCOPY_EXIT! equ 1 (
+    echo [OK] Files copied successfully
+) else if !ROBOCOPY_EXIT! leq 7 (
+    echo [OK] Copy completed with minor warnings (exit code !ROBOCOPY_EXIT!)
 ) else (
-    echo.
-    echo [ERROR] Copy process failed with error code !errorlevel!
-    echo [ERROR] Copy process failed with error code !errorlevel! >> "!LOG_FILE!"
-    echo.
-    timeout /t 3 /nobreak
+    echo [WARNING] Copy completed with exit code !ROBOCOPY_EXIT!
 )
 
-set "COPY_IN_PROGRESS=0"
+echo Files saved to: !DEST_BASE!
+echo.
 
 endlocal
 exit /b 0
-
-REM ============================================================================
-REM FUNCTION: Monitor USB Removal
-REM ============================================================================
-:monitor_usb_removal
-
-setlocal enabledelayedexpansion
-set "USB_TO_MONITOR=%~1"
-set "USB_LETTER_TO_MONITOR=%USB_TO_MONITOR:~0,1%"
-set "REMOVAL_DETECTED=0"
-set "CHECK_COUNT=0"
-
-echo [MONITOR] Watching for USB removal...
-echo [MONITOR] Watching for USB removal... >> "!LOG_FILE!"
-echo.
-
-:removal_check
-timeout /t !REMOVAL_CHECK_INTERVAL! /nobreak >nul
-
-set /a CHECK_COUNT+=1
-
-REM Test if USB drive still exists
-if exist "!USB_LETTER_TO_MONITOR!:\" (
-    REM Drive still exists - continue monitoring
-    REM Show progress every 10 checks
-    if %CHECK_COUNT% gtr 10 (
-        echo [MONITOR] USB still connected... (%CHECK_COUNT% checks)
-        set "CHECK_COUNT=0"
-    )
-) else (
-    REM Drive removed
-    echo.
-    echo ============================================================================
-    echo [USB REMOVED] !USB_LETTER_TO_MONITOR!: has been safely removed
-    echo ============================================================================
-    echo [USB REMOVED] !USB_LETTER_TO_MONITOR!: has been safely removed >> "!LOG_FILE!"
-    echo.
-    set "REMOVAL_DETECTED=1"
-)
-
-if "!REMOVAL_DETECTED!"=="0" (
-    goto removal_check
-)
-
-endlocal
-exit /b 0
-
-REM ============================================================================
-REM FUNCTION: Install Robocopy
-REM ============================================================================
-:install_robocopy
-
-echo [INFO] Robocopy is a built-in Windows utility and should be available.
-echo [INFO] If you see this message, there may be a system issue.
-echo.
-echo Attempting to locate robocopy...
-
-REM Check common robocopy locations
-if exist "C:\Windows\System32\robocopy.exe" (
-    echo [OK] Robocopy found at C:\Windows\System32\robocopy.exe
-    exit /b 0
-)
-
-if exist "C:\Program Files\ImageX\robocopy.exe" (
-    echo [OK] Robocopy found at C:\Program Files\ImageX\robocopy.exe
-    exit /b 0
-)
-
-echo [ERROR] Robocopy not found in standard locations.
-echo.
-echo Please ensure Windows is fully updated:
-echo 1. Run Windows Update
-echo 2. Restart your computer
-echo 3. Run this script again
-echo.
-
-exit /b 1
 
 REM ============================================================================
 REM END OF SCRIPT
