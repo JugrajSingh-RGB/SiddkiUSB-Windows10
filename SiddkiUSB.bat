@@ -1,7 +1,8 @@
 @echo off
 REM ============================================================================
-REM  SiddkiUSB - Hands-Free USB Auto-Copy System for Windows 10
-REM  Designed for standard Windows 10 + CMD + built-in tools only
+REM  SiddkiUSB - Hands-Free USB Auto-Copy System for Windows 10/11
+REM  Fixed for Windows 11 compatibility
+REM  Designed for standard Windows 10/11 + CMD + built-in tools only
 REM ============================================================================
 REM  IMPORTANT: This script should ideally run with Administrator privileges
 REM  to access all files on the USB and ensure maximum compatibility.
@@ -50,12 +51,13 @@ if not exist "!USB_DB!" (
 )
 
 :MONITOR_LOOP
-    REM Check if a USB drive is currently connected
-    for /f "tokens=*" %%A in ('call :GET_USB_DRIVE') do (
+    REM Windows 11 compatible USB detection
+    REM Directly query WMIC without subroutine call
+    for /f "tokens=2 delims==" %%A in ('wmic logicaldisk where drivetype^=2 get name /value 2^>nul') do (
         set "CURRENT_USB=%%A"
     )
     
-    if "!CURRENT_USB!" neq "" (
+    if defined CURRENT_USB (
         REM USB is connected
         if "!LAST_USB_LETTER!" neq "!CURRENT_USB!" (
             REM New USB detected
@@ -81,18 +83,6 @@ if not exist "!USB_DB!" (
     timeout /t !MONITOR_INTERVAL! /nobreak > nul
     goto MONITOR_LOOP
 
-:GET_USB_DRIVE
-    REM Use WMIC to identify removable USB storage devices
-    REM This is more reliable than polling drive letters manually
-    for /f "tokens=1,2" %%A in ('wmic logicaldisk where drivetype^=2 get name^,size /value 2^>nul ^| findstr "^Name="') do (
-        set "DRIVE_NAME=%%B"
-        if "!DRIVE_NAME!" neq "" (
-            echo !DRIVE_NAME!
-            exit /b 0
-        )
-    )
-    exit /b 1
-
 :HANDLE_USB_INSERTION
     setlocal enabledelayedexpansion
     set "USB_DRIVE=%~1"
@@ -100,6 +90,7 @@ if not exist "!USB_DB!" (
     REM Verify the drive still exists before starting copy
     if not exist "!USB_DRIVE!\nul" (
         echo [WARNING] USB !USB_DRIVE! was detected but is no longer accessible.
+        endlocal
         exit /b 1
     )
     
@@ -140,6 +131,7 @@ if not exist "!USB_DB!" (
     if not exist "!USB_DRIVE!\nul" (
         echo [ERROR] USB drive !USB_DRIVE! is not accessible.
         set "COPY_IN_PROGRESS=0"
+        endlocal
         exit /b 1
     )
     
